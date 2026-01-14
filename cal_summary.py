@@ -314,10 +314,14 @@ def call_ollama(prompt, model, ollama_url):
         sys.exit(1)
 
 
-def main(debug=False, quiet=False):
+def main(debug=False, quiet=False, output_format='text'):
     """Main entry point."""
     global QUIET
     QUIET = quiet
+
+    # In JSON mode, always suppress INFO messages
+    if output_format == 'json':
+        QUIET = True
 
     if debug:
         log_info("Starting calendar summary generator (DEBUG MODE - no LLM calls)...")
@@ -402,6 +406,9 @@ def main(debug=False, quiet=False):
             "highlighting key events and the overall schedule."
         )
 
+    # Collect summaries for JSON output
+    summaries = []
+
     # Process each person
     for person_name, calendars in person_calendars.items():
         log_info(f"Generating summary for {person_name}...")
@@ -429,12 +436,24 @@ def main(debug=False, quiet=False):
             log_info(f"  Calling Ollama (model: {llm_model})...")
             response = call_ollama(prompt, llm_model, ollama_url)
 
-            # Print response with header
-            print(f"\n{'='*60}")
-            print(f"  {person_name}'s Day - {today}")
-            print(f"{'='*60}\n")
-            print(response)
-            print()
+            if output_format == 'json':
+                # Collect summary for JSON output
+                summaries.append({
+                    'name': person_name,
+                    'date': today,
+                    'summary': response
+                })
+            else:
+                # Print response with header (text format)
+                print(f"\n{'='*60}")
+                print(f"  {person_name}'s Day - {today}")
+                print(f"{'='*60}\n")
+                print(response)
+                print()
+
+    # Output results based on format
+    if output_format == 'json':
+        print(json.dumps(summaries, indent=2))
 
     if debug:
         log_info("Debug mode complete - no LLM calls were made.")
@@ -452,6 +471,7 @@ Examples:
   %(prog)s --debug         # Debug mode: show prompts without calling LLM
   %(prog)s --quiet         # Quiet mode: suppress INFO messages, only show summaries
   %(prog)s -q              # Same as --quiet
+  %(prog)s --json          # Output summaries as JSON array
         """
     )
     parser.add_argument(
@@ -464,6 +484,12 @@ Examples:
         action='store_true',
         help='Quiet mode: suppress INFO messages, only show summaries and errors'
     )
+    parser.add_argument(
+        '--json',
+        action='store_true',
+        help='Output summaries as JSON array with name, date, and summary fields'
+    )
 
     args = parser.parse_args()
-    main(debug=args.debug, quiet=args.quiet)
+    output_format = 'json' if args.json else 'text'
+    main(debug=args.debug, quiet=args.quiet, output_format=output_format)

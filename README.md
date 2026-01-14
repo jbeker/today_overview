@@ -130,10 +130,50 @@ python3 cal_summary.py -q
 
 This is useful when piping output to files or other commands, as it removes all the progress information and only shows the final summaries.
 
+### JSON Output
+
+Output summaries as a JSON array instead of formatted text:
+
+```bash
+python3 cal_summary.py --json
+```
+
+The JSON output format includes an array of objects with the following fields:
+- `name`: Person's name
+- `date`: The date of the summary (ISO format)
+- `summary`: The LLM-generated summary text
+
+Example output:
+```json
+[
+  {
+    "name": "Jeremy",
+    "date": "2026-01-14",
+    "summary": "Jeremy has a busy day starting with..."
+  },
+  {
+    "name": "Alice",
+    "date": "2026-01-14",
+    "summary": "Alice's schedule includes..."
+  }
+]
+```
+
+This is useful for:
+- Integration with other tools and scripts
+- Programmatic processing of summaries
+- Storing summaries in databases
+- Building web applications or APIs
+
+**Note:** JSON mode automatically suppresses INFO messages (equivalent to --quiet).
+
 ### Save Output to File
 
 ```bash
 python3 cal_summary.py --quiet > daily_summary.md
+
+# Or save as JSON
+python3 cal_summary.py --json > daily_summary.json
 ```
 
 ### Automated Daily Summaries
