@@ -26,7 +26,7 @@ Before using this tool, ensure you have the following installed:
 2. **Python libraries**
    ```bash
    # Install required Python libraries
-   pip3 install icalendar pytz requests pyyaml
+   pip3 install icalendar pytz requests pyyaml markdown
    ```
 
 3. **Ollama** - Local LLM for generating summaries
@@ -51,7 +51,7 @@ Before using this tool, ensure you have the following installed:
 
 2. Install Python dependencies:
    ```bash
-   pip3 install icalendar pytz requests pyyaml
+   pip3 install icalendar pytz requests pyyaml markdown
    ```
 
 3. Configure your calendars in `config.yaml` (see Configuration section below)
@@ -167,13 +167,67 @@ This is useful for:
 
 **Note:** JSON mode automatically suppresses INFO messages (equivalent to --quiet).
 
+### HTML Output
+
+Convert markdown summaries to HTML format:
+
+```bash
+# Output as HTML sections
+python3 cal_summary.py --html
+
+# Or combine with JSON for HTML in JSON format
+python3 cal_summary.py --json --html
+```
+
+**HTML-only mode** (`--html`) outputs HTML fragments with each person's summary wrapped in a `<section>` tag:
+
+```html
+<section>
+  <h2>Jeremy's Day - 2026-01-14</h2>
+  <p>Jeremy has a busy day starting with...</p>
+  <!-- More HTML content -->
+</section>
+
+<section>
+  <h2>Alice's Day - 2026-01-14</h2>
+  <p>Alice's schedule includes...</p>
+  <!-- More HTML content -->
+</section>
+```
+
+**Combined JSON+HTML mode** (`--json --html`) outputs JSON with HTML in the summary field:
+
+```json
+[
+  {
+    "name": "Jeremy",
+    "date": "2026-01-14",
+    "summary": "<p>Jeremy has a busy day starting with...</p>"
+  }
+]
+```
+
+This is useful for:
+- Embedding summaries in web pages
+- Email newsletters (HTML format)
+- CMS integration
+- Combining with other HTML content
+
+**Note:** HTML mode automatically suppresses INFO messages and outputs HTML fragments only (no `<html>`, `<head>`, or `<body>` tags).
+
 ### Save Output to File
 
 ```bash
 python3 cal_summary.py --quiet > daily_summary.md
 
-# Or save as JSON
+# Save as JSON
 python3 cal_summary.py --json > daily_summary.json
+
+# Save as HTML
+python3 cal_summary.py --html > daily_summary.html
+
+# Save as JSON with HTML content
+python3 cal_summary.py --json --html > daily_summary.json
 ```
 
 ### Automated Daily Summaries
@@ -225,7 +279,7 @@ Jeremy has a busy day starting with an early morning workout...
 
 Install all required Python dependencies:
 ```bash
-pip3 install icalendar pytz requests pyyaml
+pip3 install icalendar pytz requests pyyaml markdown
 ```
 
 ### "Failed to fetch calendar" warning
@@ -243,7 +297,7 @@ pip3 install icalendar pytz requests pyyaml
 
 Install required Python libraries:
 ```bash
-pip3 install icalendar pytz requests pyyaml
+pip3 install icalendar pytz requests pyyaml markdown
 ```
 
 ### Ollama connection errors

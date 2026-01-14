@@ -13,6 +13,7 @@ from datetime import datetime, date
 from icalendar import Calendar
 import pytz
 import yaml
+import markdown
 
 
 # Configuration
@@ -37,6 +38,11 @@ def log_warn(message):
 def log_error(message):
     """Print error message to stderr."""
     print(f"\033[0;31m[ERROR]\033[0m {message}", file=sys.stderr)
+
+
+def markdown_to_html(text):
+    """Convert markdown text to HTML."""
+    return markdown.markdown(text, extensions=['extra', 'nl2br'])
 
 
 def get_local_timezone():
@@ -314,13 +320,13 @@ def call_ollama(prompt, model, ollama_url):
         sys.exit(1)
 
 
-def main(debug=False, quiet=False, output_format='text'):
+def main(debug=False, quiet=False, output_format='text', use_html=False):
     """Main entry point."""
     global QUIET
     QUIET = quiet
 
-    # In JSON mode, always suppress INFO messages
-    if output_format == 'json':
+    # In JSON or HTML mode, always suppress INFO messages
+    if output_format == 'json' or output_format == 'html':
         QUIET = True
 
     if debug:
@@ -436,8 +442,12 @@ def main(debug=False, quiet=False, output_format='text'):
             log_info(f"  Calling Ollama (model: {llm_model})...")
             response = call_ollama(prompt, llm_model, ollama_url)
 
-            if output_format == 'json':
-                # Collect summary for JSON output
+            # Convert to HTML if requested
+            if use_html:
+                response = markdown_to_html(response)
+
+            if output_format in ['json', 'html']:
+                # Collect summary for JSON or HTML output
                 summaries.append({
                     'name': person_name,
                     'date': today,
@@ -454,6 +464,14 @@ def main(debug=False, quiet=False, output_format='text'):
     # Output results based on format
     if output_format == 'json':
         print(json.dumps(summaries, indent=2))
+    elif output_format == 'html':
+        # Output HTML sections
+        for summary in summaries:
+            print(f'<section>')
+            print(f'  <h2>{summary["name"]}\'s Day - {summary["date"]}</h2>')
+            print(f'  {summary["summary"]}')
+            print(f'</section>')
+            print()
 
     if debug:
         log_info("Debug mode complete - no LLM calls were made.")
@@ -471,7 +489,9 @@ Examples:
   %(prog)s --debug         # Debug mode: show prompts without calling LLM
   %(prog)s --quiet         # Quiet mode: suppress INFO messages, only show summaries
   %(prog)s -q              # Same as --quiet
-  %(prog)s --json          # Output summaries as JSON array
+  %(prog)s --json          # Output summaries as JSON array (markdown format)
+  %(prog)s --html          # Output summaries as HTML sections
+  %(prog)s --json --html   # Output summaries as JSON array (HTML format)
         """
     )
     parser.add_argument(
@@ -489,7 +509,22 @@ Examples:
         action='store_true',
         help='Output summaries as JSON array with name, date, and summary fields'
     )
+    parser.add_argument(
+        '--html',
+        action='store_true',
+        help='Convert summaries from markdown to HTML (can be combined with --json)'
+    )
 
     args = parser.parse_args()
-    output_format = 'json' if args.json else 'text'
-    main(debug=args.debug, quiet=args.quiet, output_format=output_format)
+
+    # Determine output format and HTML conversion
+    if args.json:
+        output_format = 'json'
+    elif args.html:
+        output_format = 'html'
+    else:
+        output_format = 'text'
+
+    use_html = args.html
+
+    main(debug=args.debug, quiet=args.quiet, output_format=output_format, use_html=use_html)
