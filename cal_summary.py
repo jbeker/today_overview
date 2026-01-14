@@ -1,0 +1,455 @@
+#!/opt/homebrew/bin/python3
+"""
+Calendar Summary Generator
+Fetches iCal feeds, filters today's events, and generates AI summaries using Ollama.
+"""
+
+import sys
+import os
+import json
+import argparse
+import requests
+from datetime import datetime, date
+from icalendar import Calendar
+import pytz
+import yaml
+
+
+# Configuration
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+CONFIG_FILE = os.path.join(SCRIPT_DIR, "config.yaml")
+
+
+def log_info(message):
+    """Print info message to stderr."""
+    print(f"\033[0;32m[INFO]\033[0m {message}", file=sys.stderr)
+
+
+def log_warn(message):
+    """Print warning message to stderr."""
+    print(f"\033[1;33m[WARN]\033[0m {message}", file=sys.stderr)
+
+
+def log_error(message):
+    """Print error message to stderr."""
+    print(f"\033[0;31m[ERROR]\033[0m {message}", file=sys.stderr)
+
+
+def get_local_timezone():
+    """Get the system's local timezone as a pytz timezone."""
+    # Try to get timezone from environment or system
+    tz_name = os.environ.get('TZ')
+
+    if not tz_name:
+        # Get the offset and find matching pytz timezone
+        now = datetime.now()
+        local_offset = now.astimezone().utcoffset()
+        offset_hours = local_offset.total_seconds() / 3600
+
+        # Common US timezones based on offset
+        timezone_map = {
+            -5: 'America/New_York',    # EST/EDT
+            -6: 'America/Chicago',      # CST/CDT
+            -7: 'America/Denver',       # MST/MDT
+            -8: 'America/Los_Angeles',  # PST/PDT
+        }
+
+        tz_name = timezone_map.get(int(offset_hours), 'UTC')
+
+    try:
+        return pytz.timezone(tz_name)
+    except:
+        return pytz.UTC
+
+
+def get_event_datetime(dt, local_tz):
+    """Convert an iCal datetime to a timezone-aware datetime object in local timezone."""
+    if dt is None:
+        return None
+
+    # If it's a date object (all-day event), convert to datetime
+    if isinstance(dt, date) and not isinstance(dt, datetime):
+        return datetime.combine(dt, datetime.min.time())
+
+    # If it's already a datetime
+    if isinstance(dt, datetime):
+        # If it's naive (no timezone), assume UTC and convert to local
+        if dt.tzinfo is None:
+            dt = pytz.UTC.localize(dt)
+
+        # Convert to local timezone
+        if local_tz:
+            dt = dt.astimezone(local_tz)
+
+        return dt
+
+    return dt
+
+
+def parse_ical(ics_content, target_date=None, local_tz=None):
+    """
+    Parse iCal content and extract events for the target date.
+
+    Args:
+        ics_content: String containing .ics file content
+        target_date: datetime.date object (defaults to today)
+        local_tz: pytz timezone (defaults to system timezone)
+
+    Returns:
+        List of event dictionaries
+    """
+    if target_date is None:
+        target_date = date.today()
+
+    if local_tz is None:
+        local_tz = get_local_timezone()
+
+    # Parse calendar
+    try:
+        cal = Calendar.from_ical(ics_content)
+    except Exception as e:
+        log_error(f"Error parsing iCal: {e}")
+        return []
+
+    events = []
+
+    for component in cal.walk():
+        if component.name == "VEVENT":
+            try:
+                # Extract event details
+                summary = str(component.get('summary', 'No Title'))
+                description = str(component.get('description', ''))
+                location = str(component.get('location', ''))
+
+                # Get start and end times
+                dtstart = component.get('dtstart')
+                dtend = component.get('dtend')
+
+                if dtstart is None:
+                    continue
+
+                start_dt = get_event_datetime(dtstart.dt, local_tz)
+                end_dt = get_event_datetime(dtend.dt if dtend else None, local_tz)
+
+                # Check if event is on target date
+                if isinstance(start_dt, datetime):
+                    event_date = start_dt.date()
+                else:
+                    event_date = start_dt
+
+                # Include events that occur on target date
+                is_on_target_date = False
+
+                if event_date == target_date:
+                    is_on_target_date = True
+                elif end_dt:
+                    end_date = end_dt.date() if isinstance(end_dt, datetime) else end_dt
+                    if event_date <= target_date <= end_date:
+                        is_on_target_date = True
+
+                if is_on_target_date:
+                    # Determine if all-day event
+                    is_all_day = isinstance(dtstart.dt, date) and not isinstance(dtstart.dt, datetime)
+
+                    event_data = {
+                        'summary': summary,
+                        'description': description,
+                        'location': location,
+                        'start': start_dt.isoformat() if isinstance(start_dt, datetime) else str(start_dt),
+                        'end': end_dt.isoformat() if isinstance(end_dt, datetime) else str(end_dt) if end_dt else None,
+                        'all_day': is_all_day
+                    }
+
+                    events.append(event_data)
+
+            except Exception as e:
+                log_warn(f"Error processing event: {e}")
+                continue
+
+    # Sort events by start time
+    events.sort(key=lambda x: x['start'])
+
+    return events
+
+
+def fetch_and_parse_calendar(url, local_tz):
+    """Fetch and parse a calendar from a URL."""
+    try:
+        response = requests.get(url, timeout=30)
+        response.raise_for_status()
+        ics_content = response.text
+        return parse_ical(ics_content, local_tz=local_tz)
+    except requests.RequestException as e:
+        log_warn(f"Failed to fetch calendar: {url[:50]}... - {e}")
+        return []
+    except Exception as e:
+        log_warn(f"Failed to parse calendar: {url[:50]}... - {e}")
+        return []
+
+
+def format_event_time(event):
+    """Format event time for display."""
+    if event['all_day']:
+        return "all day"
+
+    start = event['start']
+    end = event['end']
+
+    if end:
+        # Extract time portion (HH:MM:SS) from ISO format
+        start_time = start.split('T')[1].split('-')[0].split('+')[0] if 'T' in start else start
+        end_time = end.split('T')[1].split('-')[0].split('+')[0] if 'T' in end else end
+        return f"{start_time} to {end_time}"
+    else:
+        start_time = start.split('T')[1].split('-')[0].split('+')[0] if 'T' in start else start
+        return start_time
+
+
+def clean_description(description):
+    """Clean up event description by removing call-in details."""
+    if not description:
+        return description
+
+    # List of markers that indicate call-in information starts
+    truncate_markers = [
+        "Join Zoom Meeting",
+        "Microsoft Teams Need help",
+        "________________________________________________________________________________",
+        "Join the meeting now",
+        "Dial in by phone",
+        "Join Meeting",
+        "Meeting ID:",
+        "Passcode:"
+    ]
+
+    # Find the earliest occurrence of any marker
+    earliest_pos = len(description)
+    for marker in truncate_markers:
+        pos = description.find(marker)
+        if pos != -1 and pos < earliest_pos:
+            earliest_pos = pos
+
+    # Truncate at the marker
+    if earliest_pos < len(description):
+        description = description[:earliest_pos].strip()
+
+    return description
+
+
+def format_event(event):
+    """Format a single event as markdown."""
+    lines = [f"- **{event['summary']}**: {format_event_time(event)}"]
+
+    if event['location']:
+        lines.append(f"  Location: {event['location']}")
+
+    if event['description']:
+        cleaned_desc = clean_description(event['description'])
+        if cleaned_desc:
+            lines.append(f"  Description: {cleaned_desc}")
+
+    return '\n'.join(lines)
+
+
+def build_person_events_data(person_name, person_calendars, shared_calendars):
+    """Build the events data section for a single person's LLM prompt."""
+    lines = []
+
+    # Add person's calendars
+    lines.append(f"## {person_name}'s Schedule\n")
+
+    if not person_calendars:
+        lines.append("No personal calendars configured.\n")
+    else:
+        for calendar in person_calendars:
+            description = calendar['description']
+            events = calendar['events']
+
+            if events:
+                lines.append(f"### {description}\n")
+                for event in events:
+                    lines.append(format_event(event))
+                    lines.append("")
+                lines.append("")
+
+    # Add shared calendars
+    if shared_calendars:
+        lines.append("## Shared/Family Events\n")
+
+        for calendar in shared_calendars:
+            description = calendar['description']
+            events = calendar['events']
+
+            if events:
+                lines.append(f"### {description}\n")
+                for event in events:
+                    lines.append(format_event(event))
+                    lines.append("")
+                lines.append("")
+
+    return '\n'.join(lines)
+
+
+def call_ollama(prompt, model, ollama_url):
+    """Call Ollama API to generate summary."""
+    api_url = f"{ollama_url}/api/generate"
+
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "stream": False
+    }
+
+    try:
+        response = requests.post(api_url, json=payload, timeout=300)
+        response.raise_for_status()
+        result = response.json()
+        return result.get('response', '')
+    except requests.RequestException as e:
+        log_error(f"Failed to call Ollama API: {e}")
+        sys.exit(1)
+
+
+def main(debug=False):
+    """Main entry point."""
+    if debug:
+        log_info("Starting calendar summary generator (DEBUG MODE - no LLM calls)...")
+    else:
+        log_info("Starting calendar summary generator...")
+
+    # Load config
+    if not os.path.exists(CONFIG_FILE):
+        log_error(f"Config file not found: {CONFIG_FILE}")
+        sys.exit(1)
+
+    with open(CONFIG_FILE, 'r') as f:
+        config = yaml.safe_load(f)
+
+    # Get settings
+    settings = config.get('settings', {})
+    llm_model = settings.get('llm_model', 'llama3.1:8b')
+    ollama_url = settings.get('ollama_url', 'https://ollama.confusticate.com')
+    prompt_template = settings.get('llm_prompt')
+
+    # Get timezone
+    local_tz = get_local_timezone()
+
+    # Process each person's calendars
+    log_info("Fetching personal calendars...")
+    person_calendars = {}
+
+    for person in config.get('people', []):
+        person_name = person['name']
+        log_info(f"Processing calendars for: {person_name}")
+
+        calendars = []
+        for calendar_config in person.get('calendars', []):
+            url = calendar_config['url']
+            description = calendar_config.get('description', '')
+
+            log_info(f"  Fetching: {url[:50]}...")
+            if description:
+                log_info(f"    Description: {description}")
+
+            events = fetch_and_parse_calendar(url, local_tz)
+
+            calendars.append({
+                'description': description,
+                'events': events
+            })
+
+        person_calendars[person_name] = calendars
+
+    # Process shared calendars
+    log_info("Fetching shared calendars...")
+    shared_calendars = []
+
+    for calendar_config in config.get('shared_calendars', []):
+        url = calendar_config['url']
+        description = calendar_config.get('description', '')
+
+        log_info(f"  Fetching: {url[:50]}...")
+        if description:
+            log_info(f"    Description: {description}")
+
+        events = fetch_and_parse_calendar(url, local_tz)
+
+        shared_calendars.append({
+            'description': description,
+            'events': events
+        })
+
+    # Generate individual summaries for each person
+    log_info("Generating individual summaries...")
+    today = date.today().isoformat()
+
+    # Use custom prompt template or default
+    if not prompt_template:
+        prompt_template = (
+            "You are a helpful assistant that summarizes calendar events. "
+            "Below are today's events ({today}) for {person_name}. "
+            "Please provide a concise, friendly summary of what their day looks like. "
+            "Format your response in Markdown.\n\n"
+            "{events_data}\n\n"
+            "Please provide a natural language summary of {person_name}'s day, "
+            "highlighting key events and the overall schedule."
+        )
+
+    # Process each person
+    for person_name, calendars in person_calendars.items():
+        log_info(f"Generating summary for {person_name}...")
+
+        # Build events data for this person
+        events_data = build_person_events_data(person_name, calendars, shared_calendars)
+
+        # Build prompt
+        prompt = (prompt_template
+                  .replace('{today}', today)
+                  .replace('{person_name}', person_name)
+                  .replace('{events_data}', events_data))
+
+        if debug:
+            # Debug mode: print prompt instead of calling LLM
+            print(f"\n{'='*60}")
+            print(f"  DEBUG: Prompt for {person_name}")
+            print(f"{'='*60}\n")
+            print(prompt)
+            print(f"\n{'='*60}")
+            print(f"  End of prompt for {person_name}")
+            print(f"{'='*60}\n")
+        else:
+            # Call Ollama
+            log_info(f"  Calling Ollama (model: {llm_model})...")
+            response = call_ollama(prompt, llm_model, ollama_url)
+
+            # Print response with header
+            print(f"\n{'='*60}")
+            print(f"  {person_name}'s Day - {today}")
+            print(f"{'='*60}\n")
+            print(response)
+            print()
+
+    if debug:
+        log_info("Debug mode complete - no LLM calls were made.")
+    else:
+        log_info("All summaries generated!")
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(
+        description='Generate calendar summaries using Ollama LLM',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  %(prog)s                 # Normal mode: fetch calendars and generate summaries
+  %(prog)s --debug         # Debug mode: show prompts without calling LLM
+        """
+    )
+    parser.add_argument(
+        '--debug',
+        action='store_true',
+        help='Debug mode: show prompts without calling LLM'
+    )
+
+    args = parser.parse_args()
+    main(debug=args.debug)
