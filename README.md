@@ -1,13 +1,13 @@
 # Calendar Summary Generator
 
-A tool that consolidates multiple iCal feeds, filters them to today's events, and generates AI-powered summaries of what each person's day looks like.
+A Python tool that consolidates multiple iCal feeds, filters them to today's events, and generates AI-powered summaries of what each person's day looks like.
 
 ## Features
 
 - Fetch and parse multiple iCal feeds per person
 - Support for shared calendars visible to all
-- Filter events to current day
-- AI-generated natural language summaries using local LLM
+- Filter events to current day with automatic timezone detection
+- AI-generated natural language summaries using Ollama
 - YAML-based configuration
 - Markdown output format
 
@@ -17,56 +17,41 @@ Before using this tool, ensure you have the following installed:
 
 ### Required Dependencies
 
-1. **yq** - YAML processor
-   ```bash
-   # macOS (Homebrew)
-   brew install yq
-
-   # Linux
-   # Download from: https://github.com/mikefarah/yq/releases
-   ```
-
-2. **jq** - JSON processor
-   ```bash
-   # macOS (Homebrew)
-   brew install jq
-
-   # Linux
-   sudo apt-get install jq  # Debian/Ubuntu
-   ```
-
-3. **curl** - HTTP client (usually pre-installed)
+1. **Python 3.8+**
    ```bash
    # Verify installation
-   curl --version
+   python3 --version
    ```
 
-4. **Python 3** with required libraries
+2. **Python libraries**
    ```bash
-   # Install Python libraries
-   pip3 install icalendar pytz
+   # Install required Python libraries
+   pip3 install icalendar pytz requests pyyaml
    ```
 
-5. **llm** - CLI tool for local LLM
+3. **Ollama** - Local LLM for generating summaries
    ```bash
-   # Install llm tool (if not already installed)
-   # Visit: https://llm.datasette.io/
-   pip install llm
+   # Install Ollama
+   # Visit: https://ollama.ai/
 
-   # Verify your model is available
-   llm -m llama3.1:8b "test"
+   # Pull a model (e.g., llama3.1)
+   ollama pull llama3.1:8b
+
+   # Verify Ollama is running
+   ollama list
    ```
 
 ## Installation
 
-1. Clone or download this repository:
+1. Clone this repository:
    ```bash
-   cd /path/to/cal_summary
+   git clone git@github.com:jbeker/today_overview.git
+   cd today_overview
    ```
 
-2. Make the main script executable (should already be done):
+2. Install Python dependencies:
    ```bash
-   chmod +x cal_summary.sh
+   pip3 install icalendar pytz requests pyyaml
    ```
 
 3. Configure your calendars in `config.yaml` (see Configuration section below)
@@ -92,8 +77,8 @@ shared_calendars:
   - https://company-holidays.ics
 
 settings:
-  # Optional: Override default LLM model
-  llm_model: "llama3.1:8b"
+  # Optional: Override default Ollama model (defaults to "llama3.1:8b")
+  ollama_model: "llama3.1:8b"
 
   # Optional: Set timezone (defaults to system timezone)
   # timezone: "America/New_York"
@@ -124,13 +109,19 @@ Most calendar applications provide an iCal (.ics) feed URL in their sharing or e
 Run the script to generate today's calendar summary:
 
 ```bash
-./cal_summary.sh
+python3 cal_summary.py
+```
+
+Or if you've made it executable:
+
+```bash
+./cal_summary.py
 ```
 
 ### Save Output to File
 
 ```bash
-./cal_summary.sh > daily_summary.md
+python3 cal_summary.py > daily_summary.md
 ```
 
 ### Automated Daily Summaries
@@ -139,7 +130,7 @@ Add to your crontab to run daily:
 
 ```bash
 # Run at 7 AM every day
-0 7 * * * cd /path/to/cal_summary && ./cal_summary.sh > ~/daily_summary_$(date +\%Y\%m\%d).md
+0 7 * * * cd /path/to/today_overview && python3 cal_summary.py > ~/daily_summary_$(date +\%Y\%m\%d).md
 ```
 
 ### Email Daily Summary
@@ -147,7 +138,7 @@ Add to your crontab to run daily:
 Combine with `mail` command:
 
 ```bash
-./cal_summary.sh | mail -s "Daily Calendar Summary - $(date +\%Y-\%m-\%d)" you@example.com
+python3 cal_summary.py | mail -s "Daily Calendar Summary - $(date +\%Y-\%m-\%d)" you@example.com
 ```
 
 ## Output Format
@@ -178,9 +169,12 @@ Jeremy has a busy day starting with an early morning workout...
 
 ## Troubleshooting
 
-### "Missing required dependencies" error
+### Import or dependency errors
 
-Install all required dependencies listed in the Prerequisites section.
+Install all required Python dependencies:
+```bash
+pip3 install icalendar pytz requests pyyaml
+```
 
 ### "Failed to fetch calendar" warning
 
@@ -197,14 +191,21 @@ Install all required dependencies listed in the Prerequisites section.
 
 Install required Python libraries:
 ```bash
-pip3 install icalendar pytz
+pip3 install icalendar pytz requests pyyaml
 ```
 
-### LLM not found
+### Ollama connection errors
 
-Ensure the `llm` tool is installed and the model is available:
+Ensure Ollama is running and the model is available:
 ```bash
-llm models list
+# Check if Ollama is running
+ollama list
+
+# If not running, start it (it usually runs as a background service)
+# Visit https://ollama.ai/ for installation instructions
+
+# Ensure you have the required model
+ollama pull llama3.1:8b
 ```
 
 ### No events showing up
@@ -215,14 +216,16 @@ llm models list
 
 ## Customization
 
-### Using a Different LLM Model
+### Using a Different Ollama Model
 
 Edit `config.yaml`:
 
 ```yaml
 settings:
-  llm_model: "gpt-4"  # or any other model supported by llm CLI
+  ollama_model: "llama2"  # or any other model available in Ollama
 ```
+
+Available models can be found with `ollama list` or at https://ollama.ai/library
 
 ### Custom Timezone
 
@@ -233,17 +236,18 @@ settings:
   timezone: "America/Los_Angeles"
 ```
 
-### Modify LLM Prompt
+### Modify AI Prompt
 
-Edit `cal_summary.sh` and customize the `prompt` variable in the main function to change how the LLM generates summaries.
+Edit `cal_summary.py` and customize the prompt in the `generate_summary()` function to change how the AI generates summaries.
 
 ## File Structure
 
 ```
-cal_summary/
-├── cal_summary.sh      # Main bash script
-├── parse_ical.py       # Python helper for iCal parsing
+today_overview/
+├── cal_summary.py      # Main Python script
+├── parse_ical.py       # Helper for iCal parsing (legacy)
 ├── config.yaml         # Configuration file
+├── .gitignore         # Git ignore rules
 └── README.md           # This file
 ```
 
