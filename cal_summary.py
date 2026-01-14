@@ -19,10 +19,14 @@ import yaml
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.join(SCRIPT_DIR, "config.yaml")
 
+# Global quiet flag
+QUIET = False
+
 
 def log_info(message):
     """Print info message to stderr."""
-    print(f"\033[0;32m[INFO]\033[0m {message}", file=sys.stderr)
+    if not QUIET:
+        print(f"\033[0;32m[INFO]\033[0m {message}", file=sys.stderr)
 
 
 def log_warn(message):
@@ -310,8 +314,11 @@ def call_ollama(prompt, model, ollama_url):
         sys.exit(1)
 
 
-def main(debug=False):
+def main(debug=False, quiet=False):
     """Main entry point."""
+    global QUIET
+    QUIET = quiet
+
     if debug:
         log_info("Starting calendar summary generator (DEBUG MODE - no LLM calls)...")
     else:
@@ -443,6 +450,8 @@ if __name__ == '__main__':
 Examples:
   %(prog)s                 # Normal mode: fetch calendars and generate summaries
   %(prog)s --debug         # Debug mode: show prompts without calling LLM
+  %(prog)s --quiet         # Quiet mode: suppress INFO messages, only show summaries
+  %(prog)s -q              # Same as --quiet
         """
     )
     parser.add_argument(
@@ -450,6 +459,11 @@ Examples:
         action='store_true',
         help='Debug mode: show prompts without calling LLM'
     )
+    parser.add_argument(
+        '-q', '--quiet',
+        action='store_true',
+        help='Quiet mode: suppress INFO messages, only show summaries and errors'
+    )
 
     args = parser.parse_args()
-    main(debug=args.debug)
+    main(debug=args.debug, quiet=args.quiet)

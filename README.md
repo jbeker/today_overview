@@ -118,10 +118,22 @@ Or if you've made it executable:
 ./cal_summary.py
 ```
 
+### Quiet Mode
+
+Suppress INFO messages and only show the LLM summaries:
+
+```bash
+python3 cal_summary.py --quiet
+# or
+python3 cal_summary.py -q
+```
+
+This is useful when piping output to files or other commands, as it removes all the progress information and only shows the final summaries.
+
 ### Save Output to File
 
 ```bash
-python3 cal_summary.py > daily_summary.md
+python3 cal_summary.py --quiet > daily_summary.md
 ```
 
 ### Automated Daily Summaries
@@ -130,7 +142,7 @@ Add to your crontab to run daily:
 
 ```bash
 # Run at 7 AM every day
-0 7 * * * cd /path/to/today_overview && python3 cal_summary.py > ~/daily_summary_$(date +\%Y\%m\%d).md
+0 7 * * * cd /path/to/today_overview && python3 cal_summary.py --quiet > ~/daily_summary_$(date +\%Y\%m\%d).md
 ```
 
 ### Email Daily Summary
@@ -138,7 +150,7 @@ Add to your crontab to run daily:
 Combine with `mail` command:
 
 ```bash
-python3 cal_summary.py | mail -s "Daily Calendar Summary - $(date +\%Y-\%m-\%d)" you@example.com
+python3 cal_summary.py --quiet | mail -s "Daily Calendar Summary - $(date +\%Y-\%m-\%d)" you@example.com
 ```
 
 ## Output Format
