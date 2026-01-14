@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/opt/homebrew/bin/python3
 """
 Calendar Summary Generator
 Fetches iCal feeds, filters today's events, and generates AI summaries using Ollama.

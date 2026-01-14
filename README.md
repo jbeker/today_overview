@@ -27,6 +27,9 @@ Before using this tool, ensure you have the following installed:
    ```bash
    # Install required Python libraries
    pip3 install icalendar pytz requests pyyaml markdown
+
+   # On macOS with Homebrew Python, you may need:
+   /opt/homebrew/bin/python3 -m pip install --break-system-packages icalendar pytz requests pyyaml markdown
    ```
 
 3. **Ollama** - Local LLM for generating summaries
@@ -51,7 +54,11 @@ Before using this tool, ensure you have the following installed:
 
 2. Install Python dependencies:
    ```bash
+   # For most systems
    pip3 install icalendar pytz requests pyyaml markdown
+
+   # For macOS with Homebrew Python (if you get "externally-managed-environment" error)
+   /opt/homebrew/bin/python3 -m pip install --break-system-packages icalendar pytz requests pyyaml markdown
    ```
 
 3. Configure your calendars in `config.yaml` (see Configuration section below)
