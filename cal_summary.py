@@ -14,6 +14,9 @@ from icalendar import Calendar
 import pytz
 import yaml
 import markdown
+import tempfile
+import shutil
+from io import StringIO
 
 
 # Configuration
@@ -301,7 +304,11 @@ def build_person_events_data(person_name, person_calendars, shared_calendars):
 
 
 def call_ollama(prompt, model, ollama_url):
-    """Call Ollama API to generate summary."""
+    """Call Ollama API to generate summary.
+
+    Raises:
+        RuntimeError: If the API call fails or returns empty response
+    """
     api_url = f"{ollama_url}/api/generate"
 
     payload = {
@@ -314,14 +321,31 @@ def call_ollama(prompt, model, ollama_url):
         response = requests.post(api_url, json=payload, timeout=300)
         response.raise_for_status()
         result = response.json()
-        return result.get('response', '')
+        llm_response = result.get('response', '')
+
+        if not llm_response or not llm_response.strip():
+            raise RuntimeError("LLM returned empty response")
+
+        return llm_response
     except requests.RequestException as e:
         log_error(f"Failed to call Ollama API: {e}")
-        sys.exit(1)
+        raise RuntimeError(f"Ollama API call failed: {e}")
+    except Exception as e:
+        log_error(f"Error processing Ollama response: {e}")
+        raise RuntimeError(f"Error processing Ollama response: {e}")
 
 
-def main(debug=False, quiet=False, output_format='text', use_html=False):
-    """Main entry point."""
+def main(debug=False, quiet=False, output_format='text', use_html=False, output_file=None):
+    """Main entry point.
+
+    Args:
+        debug: If True, show prompts without calling LLM
+        quiet: If True, suppress INFO messages
+        output_format: Output format ('text', 'json', or 'html')
+        use_html: If True, convert markdown to HTML
+        output_file: Optional file path to write output to. If specified and an error
+                     occurs or LLM returns no response, existing file won't be overwritten.
+    """
     global QUIET
     QUIET = quiet
 
@@ -329,38 +353,68 @@ def main(debug=False, quiet=False, output_format='text', use_html=False):
     if output_format == 'json' or output_format == 'html':
         QUIET = True
 
-    if debug:
-        log_info("Starting calendar summary generator (DEBUG MODE - no LLM calls)...")
-    else:
-        log_info("Starting calendar summary generator...")
+    # Set up output capturing if writing to file
+    original_stdout = sys.stdout
+    output_buffer = None
+    success = False
+    if output_file:
+        output_buffer = StringIO()
+        sys.stdout = output_buffer
 
-    # Load config
-    if not os.path.exists(CONFIG_FILE):
-        log_error(f"Config file not found: {CONFIG_FILE}")
-        sys.exit(1)
+    try:
+        if debug:
+            log_info("Starting calendar summary generator (DEBUG MODE - no LLM calls)...")
+        else:
+            log_info("Starting calendar summary generator...")
 
-    with open(CONFIG_FILE, 'r') as f:
-        config = yaml.safe_load(f)
+        # Load config
+        if not os.path.exists(CONFIG_FILE):
+            log_error(f"Config file not found: {CONFIG_FILE}")
+            raise RuntimeError(f"Config file not found: {CONFIG_FILE}")
 
-    # Get settings
-    settings = config.get('settings', {})
-    llm_model = settings.get('llm_model', 'llama3.1:8b')
-    ollama_url = settings.get('ollama_url', 'https://ollama.confusticate.com')
-    prompt_template = settings.get('llm_prompt')
+        with open(CONFIG_FILE, 'r') as f:
+            config = yaml.safe_load(f)
 
-    # Get timezone
-    local_tz = get_local_timezone()
+        # Get settings
+        settings = config.get('settings', {})
+        llm_model = settings.get('llm_model', 'llama3.1:8b')
+        ollama_url = settings.get('ollama_url', 'https://ollama.confusticate.com')
+        prompt_template = settings.get('llm_prompt')
 
-    # Process each person's calendars
-    log_info("Fetching personal calendars...")
-    person_calendars = {}
+        # Get timezone
+        local_tz = get_local_timezone()
 
-    for person in config.get('people', []):
-        person_name = person['name']
-        log_info(f"Processing calendars for: {person_name}")
+        # Process each person's calendars
+        log_info("Fetching personal calendars...")
+        person_calendars = {}
 
-        calendars = []
-        for calendar_config in person.get('calendars', []):
+        for person in config.get('people', []):
+            person_name = person['name']
+            log_info(f"Processing calendars for: {person_name}")
+
+            calendars = []
+            for calendar_config in person.get('calendars', []):
+                url = calendar_config['url']
+                description = calendar_config.get('description', '')
+
+                log_info(f"  Fetching: {url[:50]}...")
+                if description:
+                    log_info(f"    Description: {description}")
+
+                events = fetch_and_parse_calendar(url, local_tz)
+
+                calendars.append({
+                    'description': description,
+                    'events': events
+                })
+
+            person_calendars[person_name] = calendars
+
+        # Process shared calendars
+        log_info("Fetching shared calendars...")
+        shared_calendars = []
+
+        for calendar_config in config.get('shared_calendars', []):
             url = calendar_config['url']
             description = calendar_config.get('description', '')
 
@@ -370,113 +424,143 @@ def main(debug=False, quiet=False, output_format='text', use_html=False):
 
             events = fetch_and_parse_calendar(url, local_tz)
 
-            calendars.append({
+            shared_calendars.append({
                 'description': description,
                 'events': events
             })
 
-        person_calendars[person_name] = calendars
+        # Generate individual summaries for each person
+        log_info("Generating individual summaries...")
+        today = date.today().isoformat()
 
-    # Process shared calendars
-    log_info("Fetching shared calendars...")
-    shared_calendars = []
+        # Use custom prompt template or default
+        if not prompt_template:
+            prompt_template = (
+                "You are a helpful assistant that summarizes calendar events. "
+                "Below are today's events ({today}) for {person_name}. "
+                "Please provide a concise, friendly summary of what their day looks like. "
+                "Format your response in Markdown.\n\n"
+                "{events_data}\n\n"
+                "Please provide a natural language summary of {person_name}'s day, "
+                "highlighting key events and the overall schedule."
+            )
 
-    for calendar_config in config.get('shared_calendars', []):
-        url = calendar_config['url']
-        description = calendar_config.get('description', '')
+        # Collect summaries for JSON output
+        summaries = []
 
-        log_info(f"  Fetching: {url[:50]}...")
-        if description:
-            log_info(f"    Description: {description}")
+        # Process each person
+        for person_name, calendars in person_calendars.items():
+            log_info(f"Generating summary for {person_name}...")
 
-        events = fetch_and_parse_calendar(url, local_tz)
+            # Build events data for this person
+            events_data = build_person_events_data(person_name, calendars, shared_calendars)
 
-        shared_calendars.append({
-            'description': description,
-            'events': events
-        })
+            # Build prompt
+            prompt = (prompt_template
+                      .replace('{today}', today)
+                      .replace('{person_name}', person_name)
+                      .replace('{events_data}', events_data))
 
-    # Generate individual summaries for each person
-    log_info("Generating individual summaries...")
-    today = date.today().isoformat()
-
-    # Use custom prompt template or default
-    if not prompt_template:
-        prompt_template = (
-            "You are a helpful assistant that summarizes calendar events. "
-            "Below are today's events ({today}) for {person_name}. "
-            "Please provide a concise, friendly summary of what their day looks like. "
-            "Format your response in Markdown.\n\n"
-            "{events_data}\n\n"
-            "Please provide a natural language summary of {person_name}'s day, "
-            "highlighting key events and the overall schedule."
-        )
-
-    # Collect summaries for JSON output
-    summaries = []
-
-    # Process each person
-    for person_name, calendars in person_calendars.items():
-        log_info(f"Generating summary for {person_name}...")
-
-        # Build events data for this person
-        events_data = build_person_events_data(person_name, calendars, shared_calendars)
-
-        # Build prompt
-        prompt = (prompt_template
-                  .replace('{today}', today)
-                  .replace('{person_name}', person_name)
-                  .replace('{events_data}', events_data))
-
-        if debug:
-            # Debug mode: print prompt instead of calling LLM
-            print(f"\n{'='*60}")
-            print(f"  DEBUG: Prompt for {person_name}")
-            print(f"{'='*60}\n")
-            print(prompt)
-            print(f"\n{'='*60}")
-            print(f"  End of prompt for {person_name}")
-            print(f"{'='*60}\n")
-        else:
-            # Call Ollama
-            log_info(f"  Calling Ollama (model: {llm_model})...")
-            response = call_ollama(prompt, llm_model, ollama_url)
-
-            # Convert to HTML if requested
-            if use_html:
-                response = markdown_to_html(response)
-
-            if output_format in ['json', 'html']:
-                # Collect summary for JSON or HTML output
-                summaries.append({
-                    'name': person_name,
-                    'date': today,
-                    'summary': response
-                })
-            else:
-                # Print response with header (text format)
+            if debug:
+                # Debug mode: print prompt instead of calling LLM
                 print(f"\n{'='*60}")
-                print(f"  {person_name}'s Day - {today}")
+                print(f"  DEBUG: Prompt for {person_name}")
                 print(f"{'='*60}\n")
-                print(response)
+                print(prompt)
+                print(f"\n{'='*60}")
+                print(f"  End of prompt for {person_name}")
+                print(f"{'='*60}\n")
+            else:
+                # Call Ollama
+                log_info(f"  Calling Ollama (model: {llm_model})...")
+                response = call_ollama(prompt, llm_model, ollama_url)
+
+                # Convert to HTML if requested
+                if use_html:
+                    response = markdown_to_html(response)
+
+                if output_format in ['json', 'html']:
+                    # Collect summary for JSON or HTML output
+                    summaries.append({
+                        'name': person_name,
+                        'date': today,
+                        'summary': response
+                    })
+                else:
+                    # Print response with header (text format)
+                    print(f"\n{'='*60}")
+                    print(f"  {person_name}'s Day - {today}")
+                    print(f"{'='*60}\n")
+                    print(response)
+                    print()
+
+        # Output results based on format
+        if output_format == 'json':
+            print(json.dumps(summaries, indent=2))
+        elif output_format == 'html':
+            # Output HTML sections
+            for summary in summaries:
+                print(f'<section>')
+                print(f'  <h2>{summary["name"]}\'s Day - {summary["date"]}</h2>')
+                print(f'  {summary["summary"]}')
+                print(f'</section>')
                 print()
 
-    # Output results based on format
-    if output_format == 'json':
-        print(json.dumps(summaries, indent=2))
-    elif output_format == 'html':
-        # Output HTML sections
-        for summary in summaries:
-            print(f'<section>')
-            print(f'  <h2>{summary["name"]}\'s Day - {summary["date"]}</h2>')
-            print(f'  {summary["summary"]}')
-            print(f'</section>')
-            print()
+        if debug:
+            log_info("Debug mode complete - no LLM calls were made.")
+        else:
+            log_info("All summaries generated!")
 
-    if debug:
-        log_info("Debug mode complete - no LLM calls were made.")
-    else:
-        log_info("All summaries generated!")
+        # Mark success so we write to file in finally block
+        success = True
+
+    except RuntimeError as e:
+        # Error occurred - restore stdout and don't write to file
+        sys.stdout = original_stdout
+        log_error(f"Failed to generate summaries: {e}")
+        if output_file:
+            log_error(f"Output file '{output_file}' was not modified due to error")
+        sys.exit(1)
+    except Exception as e:
+        # Unexpected error - restore stdout and don't write to file
+        sys.stdout = original_stdout
+        log_error(f"Unexpected error: {e}")
+        if output_file:
+            log_error(f"Output file '{output_file}' was not modified due to error")
+        sys.exit(1)
+    finally:
+        # Restore stdout
+        sys.stdout = original_stdout
+
+        # Write to file only if we succeeded and output_file was specified
+        if success and output_file and output_buffer:
+            output_content = output_buffer.getvalue()
+
+            # Only write if we have content
+            if output_content.strip():
+                try:
+                    # Write to temporary file first
+                    temp_fd, temp_path = tempfile.mkstemp(
+                        dir=os.path.dirname(os.path.abspath(output_file)),
+                        prefix='.tmp_',
+                        suffix='_summary'
+                    )
+
+                    with os.fdopen(temp_fd, 'w') as temp_file:
+                        temp_file.write(output_content)
+
+                    # Atomically replace the output file
+                    shutil.move(temp_path, output_file)
+                    log_info(f"Output written to: {output_file}")
+                except Exception as e:
+                    log_error(f"Failed to write output file: {e}")
+                    # Clean up temp file if it exists
+                    if 'temp_path' in locals() and os.path.exists(temp_path):
+                        os.unlink(temp_path)
+                    sys.exit(1)
+            else:
+                log_error("No output generated - output file not modified")
+                sys.exit(1)
 
 
 if __name__ == '__main__':
@@ -485,13 +569,15 @@ if __name__ == '__main__':
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s                 # Normal mode: fetch calendars and generate summaries
-  %(prog)s --debug         # Debug mode: show prompts without calling LLM
-  %(prog)s --quiet         # Quiet mode: suppress INFO messages, only show summaries
-  %(prog)s -q              # Same as --quiet
-  %(prog)s --json          # Output summaries as JSON array (markdown format)
-  %(prog)s --html          # Output summaries as HTML sections
-  %(prog)s --json --html   # Output summaries as JSON array (HTML format)
+  %(prog)s                        # Normal mode: fetch calendars and generate summaries
+  %(prog)s --debug                # Debug mode: show prompts without calling LLM
+  %(prog)s --quiet                # Quiet mode: suppress INFO messages, only show summaries
+  %(prog)s -q                     # Same as --quiet
+  %(prog)s --json                 # Output summaries as JSON array (markdown format)
+  %(prog)s --html                 # Output summaries as HTML sections
+  %(prog)s --json --html          # Output summaries as JSON array (HTML format)
+  %(prog)s -o summary.txt         # Write output to summary.txt (safe from errors)
+  %(prog)s --json -o summary.json # Write JSON output to summary.json
         """
     )
     parser.add_argument(
@@ -514,6 +600,12 @@ Examples:
         action='store_true',
         help='Convert summaries from markdown to HTML (can be combined with --json)'
     )
+    parser.add_argument(
+        '-o', '--output',
+        type=str,
+        metavar='FILE',
+        help='Write output to FILE. If an error occurs or LLM returns no response, existing file will not be overwritten'
+    )
 
     args = parser.parse_args()
 
@@ -527,4 +619,4 @@ Examples:
 
     use_html = args.html
 
-    main(debug=args.debug, quiet=args.quiet, output_format=output_format, use_html=use_html)
+    main(debug=args.debug, quiet=args.quiet, output_format=output_format, use_html=use_html, output_file=args.output)
