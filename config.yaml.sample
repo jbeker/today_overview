@@ -1,0 +1,44 @@
+# Calendar Summary Configuration
+# Configure people and their calendar feeds, plus shared calendars
+
+people:
+  - name: Alice
+    calendars:
+      - url: https://example.com/alice/personal.ics
+        description: "Personal calendar"
+      - url: https://example.com/alice/work.ics
+        description: "Work calendar"
+
+  - name: Bob
+    calendars:
+      - url: https://example.com/bob/work.ics
+        description: "Work calendar"
+
+# Shared calendars that appear for everyone
+shared_calendars:
+  - url: https://example.com/shared/family.ics
+    description: "Family calendar"
+
+# Optional settings
+settings:
+  # Timezone for filtering today's events (defaults to system timezone)
+  # timezone: "America/New_York"
+
+  # LLM model to use (can override the default)
+  llm_model: "gemma3:12b"
+
+  # Ollama server URL (for Python script)
+  ollama_url: "http://localhost:11434"
+
+  # Custom prompt template for the LLM
+  # Use {events_data} as placeholder for calendar events
+  # Use {today} as placeholder for today's date
+  # Use {person_name} as placeholder for the person's name
+  llm_prompt: |
+    You are a helpful assistant that summarizes calendar events. Below are today's events ({today}) for {person_name}. Please provide a concise, friendly summary of what their day looks like based on this information.
+
+    {events_data}
+
+    Please provide a natural language summary of {person_name}'s day, highlighting key events and the overall schedule. Include the start time for meetings you mention. Feel free to make comments about how busy or free the day looks but do not extemporise on the contents of the meetings. Do not include today's date in your output. Form your response as a paragraph. If the location for an event is unscpecified, do not mention it.
+
+    Format your response in Markdown. Do not use bulleted lists. Use bold or italics to highlight key information.
