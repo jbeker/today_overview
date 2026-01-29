@@ -351,7 +351,7 @@ settings:
 
 ### Modify AI Prompt
 
-Edit `cal_summary.py` and customize the prompt in the `generate_summary()` function to change how the AI generates summaries.
+Edit the `prompt` setting in `config.yaml` to change how the AI generates summaries.
 
 ## File Structure
 
