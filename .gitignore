@@ -45,7 +45,5 @@ daily_summary*.md
 .env
 .env.local
 
-# Private configuration and templates
+# Private configuration
 config.yaml
-trmnl_template.liquid
-trmnl_template_compact.liquid

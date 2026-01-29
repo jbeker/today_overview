@@ -353,52 +353,6 @@ settings:
 
 Edit `cal_summary.py` and customize the prompt in the `generate_summary()` function to change how the AI generates summaries.
 
-## TRMNL Integration
-
-This tool can be integrated with [TRMNL](https://usetrmnl.com) e-ink displays to show your daily calendar summaries.
-
-### Setup
-
-1. **Generate JSON output:**
-   ```bash
-   python3 cal_summary.py --json > summary.json
-   ```
-
-2. **Upload to TRMNL:**
-   - Use TRMNL's custom plugin feature
-   - Upload one of the provided Liquid templates:
-     - `trmnl_template.liquid` - Full summaries (best for 1-2 people)
-     - `trmnl_template_compact.liquid` - Compact summaries (best for 3+ people)
-   - Configure the plugin to fetch your JSON file
-
-3. **Automate with cron:**
-   ```bash
-   # Generate and upload to your server daily
-   0 7 * * * cd /path/to/today_overview && python3 cal_summary.py --json > /var/www/html/summary.json
-   ```
-
-### Template Options
-
-**Full Template (`trmnl_template.liquid`):**
-- Shows complete summaries for each person
-- Best for detailed daily overviews
-- Includes date display and dividers between people
-
-**Compact Template (`trmnl_template_compact.liquid`):**
-- Truncates summaries to 50 words
-- Optimized for multiple people
-- Better fits smaller display constraints
-
-### Customization
-
-Edit the Liquid templates to customize:
-- Layout and spacing
-- Content truncation length
-- Title bar text and icons
-- CSS classes for styling
-
-For more information on TRMNL templates, visit: https://usetrmnl.com/framework
-
 ## File Structure
 
 ```
@@ -406,8 +360,6 @@ today_overview/
 ├── cal_summary.py              # Main Python script
 ├── parse_ical.py               # Helper for iCal parsing (legacy)
 ├── config.yaml                 # Configuration file
-├── trmnl_template.liquid       # TRMNL template (full summaries)
-├── trmnl_template_compact.liquid  # TRMNL template (compact)
 ├── .gitignore                  # Git ignore rules
 └── README.md                   # This file
 ```
