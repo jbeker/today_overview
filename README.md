@@ -5,6 +5,7 @@ A Python tool that consolidates multiple iCal feeds, filters them to today's eve
 ## Features
 
 - Fetch and parse multiple iCal feeds per person
+- **Recurring event support** — expands RRULE, RDATE, and EXDATE automatically
 - Support for shared calendars visible to all
 - Filter events to current day with automatic timezone detection
 - AI-generated natural language summaries using Ollama
@@ -17,19 +18,22 @@ Before using this tool, ensure you have the following installed:
 
 ### Required Dependencies
 
-1. **Python 3.8+**
+1. **Python 3.10+**
    ```bash
    # Verify installation
    python3 --version
    ```
 
-2. **Python libraries**
+2. **[uv](https://docs.astral.sh/uv/)** (recommended) or pip
    ```bash
-   # Install required Python libraries
-   pip3 install icalendar pytz requests pyyaml markdown
+   # With uv — no manual install needed, deps are resolved automatically:
+   uv run cal_summary.py
+
+   # Or install manually with pip:
+   pip3 install icalendar pytz requests pyyaml markdown recurring-ical-events
 
    # On macOS with Homebrew Python, you may need:
-   /opt/homebrew/bin/python3 -m pip install --break-system-packages icalendar pytz requests pyyaml markdown
+   /opt/homebrew/bin/python3 -m pip install --break-system-packages icalendar pytz requests pyyaml markdown recurring-ical-events
    ```
 
 3. **Ollama** - Local LLM for generating summaries
@@ -54,11 +58,14 @@ Before using this tool, ensure you have the following installed:
 
 2. Install Python dependencies:
    ```bash
-   # For most systems
-   pip3 install icalendar pytz requests pyyaml markdown
+   # Recommended: use uv (handles deps automatically via inline metadata)
+   uv run cal_summary.py
+
+   # Or install manually:
+   pip3 install icalendar pytz requests pyyaml markdown recurring-ical-events
 
    # For macOS with Homebrew Python (if you get "externally-managed-environment" error)
-   /opt/homebrew/bin/python3 -m pip install --break-system-packages icalendar pytz requests pyyaml markdown
+   /opt/homebrew/bin/python3 -m pip install --break-system-packages icalendar pytz requests pyyaml markdown recurring-ical-events
    ```
 
 3. Configure your calendars in `config.yaml` (see Configuration section below)
@@ -116,12 +123,13 @@ Most calendar applications provide an iCal (.ics) feed URL in their sharing or e
 Run the script to generate today's calendar summary:
 
 ```bash
+# Recommended: uv handles dependencies automatically
+uv run cal_summary.py
+
+# Or run directly if deps are installed:
 python3 cal_summary.py
-```
 
-Or if you've made it executable:
-
-```bash
+# Or if you've made it executable:
 ./cal_summary.py
 ```
 
@@ -286,7 +294,7 @@ Jeremy has a busy day starting with an early morning workout...
 
 Install all required Python dependencies:
 ```bash
-pip3 install icalendar pytz requests pyyaml markdown
+pip3 install icalendar pytz requests pyyaml markdown recurring-ical-events
 ```
 
 ### "Failed to fetch calendar" warning
@@ -304,7 +312,7 @@ pip3 install icalendar pytz requests pyyaml markdown
 
 Install required Python libraries:
 ```bash
-pip3 install icalendar pytz requests pyyaml markdown
+pip3 install icalendar pytz requests pyyaml markdown recurring-ical-events
 ```
 
 ### Ollama connection errors

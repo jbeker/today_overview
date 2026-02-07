@@ -1,4 +1,15 @@
 #!/opt/homebrew/bin/python3
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "icalendar",
+#     "pytz",
+#     "requests",
+#     "pyyaml",
+#     "markdown",
+#     "recurring-ical-events",
+# ]
+# ///
 """
 Calendar Summary Generator
 Fetches iCal feeds, filters today's events, and generates AI summaries using Ollama.
@@ -12,6 +23,7 @@ import requests
 from datetime import datetime, date
 from icalendar import Calendar
 import pytz
+import recurring_ical_events
 import yaml
 import markdown
 import tempfile
@@ -126,58 +138,44 @@ def parse_ical(ics_content, target_date=None, local_tz=None):
 
     events = []
 
-    for component in cal.walk():
-        if component.name == "VEVENT":
-            try:
-                # Extract event details
-                summary = str(component.get('summary', 'No Title'))
-                description = str(component.get('description', ''))
-                location = str(component.get('location', ''))
+    # Expand recurring events (RRULE, RDATE) and apply EXDATE exclusions
+    try:
+        recurring_events = recurring_ical_events.of(cal, skip_bad_series=True).at(target_date)
+    except Exception as e:
+        log_warn(f"Error expanding recurring events: {e}")
+        recurring_events = []
 
-                # Get start and end times
-                dtstart = component.get('dtstart')
-                dtend = component.get('dtend')
+    for component in recurring_events:
+        try:
+            summary = str(component.get('summary', 'No Title'))
+            description = str(component.get('description', ''))
+            location = str(component.get('location', ''))
 
-                if dtstart is None:
-                    continue
+            dtstart = component.get('dtstart')
+            dtend = component.get('dtend')
 
-                start_dt = get_event_datetime(dtstart.dt, local_tz)
-                end_dt = get_event_datetime(dtend.dt if dtend else None, local_tz)
-
-                # Check if event is on target date
-                if isinstance(start_dt, datetime):
-                    event_date = start_dt.date()
-                else:
-                    event_date = start_dt
-
-                # Include events that occur on target date
-                is_on_target_date = False
-
-                if event_date == target_date:
-                    is_on_target_date = True
-                elif end_dt:
-                    end_date = end_dt.date() if isinstance(end_dt, datetime) else end_dt
-                    if event_date <= target_date <= end_date:
-                        is_on_target_date = True
-
-                if is_on_target_date:
-                    # Determine if all-day event
-                    is_all_day = isinstance(dtstart.dt, date) and not isinstance(dtstart.dt, datetime)
-
-                    event_data = {
-                        'summary': summary,
-                        'description': description,
-                        'location': location,
-                        'start': start_dt.isoformat() if isinstance(start_dt, datetime) else str(start_dt),
-                        'end': end_dt.isoformat() if isinstance(end_dt, datetime) else str(end_dt) if end_dt else None,
-                        'all_day': is_all_day
-                    }
-
-                    events.append(event_data)
-
-            except Exception as e:
-                log_warn(f"Error processing event: {e}")
+            if dtstart is None:
                 continue
+
+            start_dt = get_event_datetime(dtstart.dt, local_tz)
+            end_dt = get_event_datetime(dtend.dt if dtend else None, local_tz)
+
+            is_all_day = isinstance(dtstart.dt, date) and not isinstance(dtstart.dt, datetime)
+
+            event_data = {
+                'summary': summary,
+                'description': description,
+                'location': location,
+                'start': start_dt.isoformat() if isinstance(start_dt, datetime) else str(start_dt),
+                'end': end_dt.isoformat() if isinstance(end_dt, datetime) else str(end_dt) if end_dt else None,
+                'all_day': is_all_day
+            }
+
+            events.append(event_data)
+
+        except Exception as e:
+            log_warn(f"Error processing event: {e}")
+            continue
 
     # Sort events by start time
     events.sort(key=lambda x: x['start'])
