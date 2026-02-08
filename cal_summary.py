@@ -26,6 +26,7 @@ import pytz
 import recurring_ical_events
 import yaml
 import markdown
+import subprocess
 import tempfile
 import shutil
 from io import StringIO
@@ -333,6 +334,40 @@ def call_ollama(prompt, model, ollama_url):
         raise RuntimeError(f"Error processing Ollama response: {e}")
 
 
+def call_llm_command(prompt, command):
+    """Call an external LLM CLI tool by piping the prompt to it via stdin.
+
+    Args:
+        prompt: The prompt text to send
+        command: The shell command to run (e.g. "claude -p")
+
+    Raises:
+        RuntimeError: If the command fails or returns empty output
+    """
+    try:
+        result = subprocess.run(
+            command,
+            shell=True,
+            input=prompt,
+            capture_output=True,
+            text=True,
+            timeout=600
+        )
+        if result.returncode != 0:
+            stderr_msg = result.stderr.strip() if result.stderr else "unknown error"
+            raise RuntimeError(f"LLM command failed (exit {result.returncode}): {stderr_msg}")
+
+        output = result.stdout
+        if not output or not output.strip():
+            raise RuntimeError("LLM command returned empty output")
+
+        return output
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"LLM command timed out after 600 seconds")
+    except FileNotFoundError:
+        raise RuntimeError(f"LLM command not found: {command}")
+
+
 def main(debug=False, quiet=False, output_format='text', use_html=False, output_file=None):
     """Main entry point.
 
@@ -377,6 +412,7 @@ def main(debug=False, quiet=False, output_format='text', use_html=False, output_
         settings = config.get('settings', {})
         llm_model = settings.get('llm_model', 'llama3.1:8b')
         ollama_url = settings.get('ollama_url', 'https://ollama.confusticate.com')
+        llm_command = settings.get('llm_command')
         prompt_template = settings.get('llm_prompt')
 
         # Get timezone
@@ -469,9 +505,13 @@ def main(debug=False, quiet=False, output_format='text', use_html=False, output_
                 print(f"  End of prompt for {person_name}")
                 print(f"{'='*60}\n")
             else:
-                # Call Ollama
-                log_info(f"  Calling Ollama (model: {llm_model})...")
-                response = call_ollama(prompt, llm_model, ollama_url)
+                # Call LLM (via command or Ollama API)
+                if llm_command:
+                    log_info(f"  Calling LLM command: {llm_command}")
+                    response = call_llm_command(prompt, llm_command)
+                else:
+                    log_info(f"  Calling Ollama (model: {llm_model})...")
+                    response = call_ollama(prompt, llm_model, ollama_url)
 
                 # Convert to HTML if requested
                 if use_html:
