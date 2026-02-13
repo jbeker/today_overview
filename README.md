@@ -7,6 +7,7 @@ A Python tool that consolidates multiple iCal feeds, filters them to today's eve
 - Fetch and parse multiple iCal feeds per person
 - **Recurring event support** — expands RRULE, RDATE, and EXDATE automatically
 - Support for shared calendars visible to all
+- Per-calendar regex ignore patterns to filter out noisy events
 - Filter events to current day with automatic timezone detection
 - AI-generated natural language summaries using Ollama
 - YAML-based configuration
@@ -97,6 +98,37 @@ settings:
   # Optional: Set timezone (defaults to system timezone)
   # timezone: "America/New_York"
 ```
+
+### Ignoring Events
+
+You can filter out unwanted events on a per-calendar basis using `ignore_patterns`. Each pattern is a regular expression matched (case-insensitively) against the event summary. Any event that matches at least one pattern is excluded.
+
+```yaml
+people:
+  - name: Alice
+    calendars:
+      - url: https://example.com/alice/work.ics
+        description: "Work calendar"
+        ignore_patterns:
+          - "^Focus Time$"    # exact match
+          - "lunch block"     # substring match
+          - "OOO|Out of Office"  # multiple terms
+
+shared_calendars:
+  - url: https://example.com/shared/family.ics
+    description: "Family calendar"
+    ignore_patterns:
+      - "^Placeholder$"
+```
+
+Patterns use Python's `re` module syntax. Useful examples:
+
+| Pattern | Effect |
+|---|---|
+| `^Focus Time$` | Exact match only |
+| `lunch` | Any event containing "lunch" |
+| `standup\|stand-up` | Events matching either variant |
+| `^\[Blocked\]` | Events starting with "[Blocked]" |
 
 ### Getting iCal Feed URLs
 

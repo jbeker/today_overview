@@ -8,6 +8,9 @@ people:
         description: "Personal calendar"
       - url: https://example.com/alice/work.ics
         description: "Work calendar"
+        ignore_patterns:
+          - "^Focus Time$"
+          - "lunch block"
 
   - name: Bob
     calendars:

@@ -18,6 +18,7 @@ Fetches iCal feeds, filters today's events, and generates AI summaries using Oll
 import sys
 import os
 import json
+import re
 import argparse
 import requests
 from datetime import datetime, date
@@ -197,6 +198,22 @@ def fetch_and_parse_calendar(url, local_tz):
     except Exception as e:
         log_warn(f"Failed to parse calendar: {url[:50]}... - {e}")
         return []
+
+
+def filter_events(events, ignore_patterns):
+    """Filter out events whose summary matches any of the given regex patterns.
+
+    Args:
+        events: List of event dictionaries (each must have a 'summary' key)
+        ignore_patterns: List of regex pattern strings to match against summaries
+
+    Returns:
+        Filtered list of events
+    """
+    if not ignore_patterns:
+        return events
+    compiled = [re.compile(p, re.IGNORECASE) for p in ignore_patterns]
+    return [e for e in events if not any(r.search(e['summary']) for r in compiled)]
 
 
 def format_event_time(event):
@@ -436,6 +453,8 @@ def main(debug=False, quiet=False, output_format='text', use_html=False, output_
                     log_info(f"    Description: {description}")
 
                 events = fetch_and_parse_calendar(url, local_tz)
+                ignore_patterns = calendar_config.get('ignore_patterns', [])
+                events = filter_events(events, ignore_patterns)
 
                 calendars.append({
                     'description': description,
@@ -457,6 +476,8 @@ def main(debug=False, quiet=False, output_format='text', use_html=False, output_
                 log_info(f"    Description: {description}")
 
             events = fetch_and_parse_calendar(url, local_tz)
+            ignore_patterns = calendar_config.get('ignore_patterns', [])
+            events = filter_events(events, ignore_patterns)
 
             shared_calendars.append({
                 'description': description,
