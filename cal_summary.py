@@ -21,7 +21,7 @@ import json
 import re
 import argparse
 import requests
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from icalendar import Calendar
 import pytz
 import recurring_ical_events
@@ -185,13 +185,13 @@ def parse_ical(ics_content, target_date=None, local_tz=None):
     return events
 
 
-def fetch_and_parse_calendar(url, local_tz):
+def fetch_and_parse_calendar(url, local_tz, target_date=None):
     """Fetch and parse a calendar from a URL."""
     try:
         response = requests.get(url, timeout=30)
         response.raise_for_status()
         ics_content = response.text
-        return parse_ical(ics_content, local_tz=local_tz)
+        return parse_ical(ics_content, target_date=target_date, local_tz=local_tz)
     except requests.RequestException as e:
         log_warn(f"Failed to fetch calendar: {url[:50]}... - {e}")
         return []
@@ -385,7 +385,8 @@ def call_llm_command(prompt, command):
         raise RuntimeError(f"LLM command not found: {command}")
 
 
-def main(debug=False, quiet=False, output_format='text', use_html=False, output_file=None):
+def main(debug=False, quiet=False, output_format='text', use_html=False, output_file=None,
+         target_date=None, date_label=None, full_date_str=None):
     """Main entry point.
 
     Args:
@@ -395,6 +396,9 @@ def main(debug=False, quiet=False, output_format='text', use_html=False, output_
         use_html: If True, convert markdown to HTML
         output_file: Optional file path to write output to. If specified and an error
                      occurs or LLM returns no response, existing file won't be overwritten.
+        target_date: Date to fetch events for (defaults to today)
+        date_label: Human label like "today", "tomorrow", or "Thursday, February 20"
+        full_date_str: Full date string like "Saturday, February 14, 2026"
     """
     global QUIET
     QUIET = quiet
@@ -452,7 +456,7 @@ def main(debug=False, quiet=False, output_format='text', use_html=False, output_
                 if description:
                     log_info(f"    Description: {description}")
 
-                events = fetch_and_parse_calendar(url, local_tz)
+                events = fetch_and_parse_calendar(url, local_tz, target_date=target_date)
                 ignore_patterns = calendar_config.get('ignore_patterns', [])
                 events = filter_events(events, ignore_patterns)
 
@@ -475,7 +479,7 @@ def main(debug=False, quiet=False, output_format='text', use_html=False, output_
             if description:
                 log_info(f"    Description: {description}")
 
-            events = fetch_and_parse_calendar(url, local_tz)
+            events = fetch_and_parse_calendar(url, local_tz, target_date=target_date)
             ignore_patterns = calendar_config.get('ignore_patterns', [])
             events = filter_events(events, ignore_patterns)
 
@@ -486,13 +490,27 @@ def main(debug=False, quiet=False, output_format='text', use_html=False, output_
 
         # Generate individual summaries for each person
         log_info("Generating individual summaries...")
-        today = date.today().isoformat()
+        if target_date is None:
+            target_date = date.today()
+        if date_label is None:
+            date_label = "today"
+        if full_date_str is None:
+            full_date_str = target_date.strftime("%A, %B %-d, %Y")
+        target_date_str = target_date.isoformat()
+
+        # Compute header label
+        if date_label == "today":
+            header_label = "Day"
+        elif date_label == "tomorrow":
+            header_label = "Tomorrow"
+        else:
+            header_label = f"Schedule ({date_label})"
 
         # Use custom prompt template or default
         if not prompt_template:
             prompt_template = (
                 "You are a helpful assistant that summarizes calendar events. "
-                "Below are today's events ({today}) for {person_name}. "
+                "Below are {date_label}'s events ({full_date}) for {person_name}. "
                 "Please provide a concise, friendly summary of what their day looks like. "
                 "Format your response in Markdown.\n\n"
                 "{events_data}\n\n"
@@ -512,7 +530,10 @@ def main(debug=False, quiet=False, output_format='text', use_html=False, output_
 
             # Build prompt
             prompt = (prompt_template
-                      .replace('{today}', today)
+                      .replace('{today}', target_date_str)
+                      .replace('{target_date}', target_date_str)
+                      .replace('{full_date}', full_date_str)
+                      .replace('{date_label}', date_label)
                       .replace('{person_name}', person_name)
                       .replace('{events_data}', events_data))
 
@@ -542,13 +563,13 @@ def main(debug=False, quiet=False, output_format='text', use_html=False, output_
                     # Collect summary for JSON or HTML output
                     summaries.append({
                         'name': person_name,
-                        'date': today,
+                        'date': target_date_str,
                         'summary': response
                     })
                 else:
                     # Print response with header (text format)
                     print(f"\n{'='*60}")
-                    print(f"  {person_name}'s Day - {today}")
+                    print(f"  {person_name}'s {header_label} - {target_date_str}")
                     print(f"{'='*60}\n")
                     print(response)
                     print()
@@ -560,7 +581,7 @@ def main(debug=False, quiet=False, output_format='text', use_html=False, output_
             # Output HTML sections
             for summary in summaries:
                 print(f'<section>')
-                print(f'  <h2>{summary["name"]}\'s Day - {summary["date"]}</h2>')
+                print(f'  <h2>{summary["name"]}\'s {header_label} - {summary["date"]}</h2>')
                 print(f'  {summary["summary"]}')
                 print(f'</section>')
                 print()
@@ -637,6 +658,8 @@ Examples:
   %(prog)s --json --html          # Output summaries as JSON array (HTML format)
   %(prog)s -o summary.txt         # Write output to summary.txt (safe from errors)
   %(prog)s --json -o summary.json # Write JSON output to summary.json
+  %(prog)s --tomorrow             # Fetch events for tomorrow
+  %(prog)s --date 2026-02-20      # Fetch events for a specific date
         """
     )
     parser.add_argument(
@@ -666,7 +689,41 @@ Examples:
         help='Write output to FILE. If an error occurs or LLM returns no response, existing file will not be overwritten'
     )
 
+    date_group = parser.add_mutually_exclusive_group()
+    date_group.add_argument(
+        '--tomorrow',
+        action='store_true',
+        help="Fetch events for tomorrow instead of today"
+    )
+    date_group.add_argument(
+        '--date',
+        type=str,
+        metavar='YYYY-MM-DD',
+        help='Fetch events for a specific date (ISO format: YYYY-MM-DD)'
+    )
+
     args = parser.parse_args()
+
+    # Compute target date
+    if args.tomorrow:
+        target_date = date.today() + timedelta(days=1)
+        date_label = "tomorrow"
+    elif args.date:
+        try:
+            target_date = date.fromisoformat(args.date)
+        except ValueError:
+            parser.error(f"Invalid date format: {args.date}. Use YYYY-MM-DD.")
+        if target_date == date.today():
+            date_label = "today"
+        elif target_date == date.today() + timedelta(days=1):
+            date_label = "tomorrow"
+        else:
+            date_label = target_date.strftime("%A, %B %-d")
+    else:
+        target_date = date.today()
+        date_label = "today"
+
+    full_date_str = target_date.strftime("%A, %B %-d, %Y")
 
     # Determine output format and HTML conversion
     if args.json:
@@ -678,4 +735,6 @@ Examples:
 
     use_html = args.html
 
-    main(debug=args.debug, quiet=args.quiet, output_format=output_format, use_html=use_html, output_file=args.output)
+    main(debug=args.debug, quiet=args.quiet, output_format=output_format, use_html=use_html,
+         output_file=args.output, target_date=target_date, date_label=date_label,
+         full_date_str=full_date_str)

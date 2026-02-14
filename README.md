@@ -8,7 +8,7 @@ A Python tool that consolidates multiple iCal feeds, filters them to today's eve
 - **Recurring event support** — expands RRULE, RDATE, and EXDATE automatically
 - Support for shared calendars visible to all
 - Per-calendar regex ignore patterns to filter out noisy events
-- Filter events to current day with automatic timezone detection
+- Filter events to current day (or any date via `--tomorrow` / `--date`) with automatic timezone detection
 - AI-generated natural language summaries using Ollama
 - YAML-based configuration
 - Markdown output format
@@ -164,6 +164,24 @@ python3 cal_summary.py
 # Or if you've made it executable:
 ./cal_summary.py
 ```
+
+### Date Selection
+
+By default, events are fetched for today. Use `--tomorrow` or `--date` to query a different date:
+
+```bash
+# Fetch tomorrow's events
+python3 cal_summary.py --tomorrow
+
+# Fetch events for a specific date
+python3 cal_summary.py --date 2026-02-20
+
+# Combine with other flags
+python3 cal_summary.py --tomorrow --json
+python3 cal_summary.py --date 2026-03-01 --debug
+```
+
+The `--tomorrow` and `--date` flags are mutually exclusive.
 
 ### Quiet Mode
 

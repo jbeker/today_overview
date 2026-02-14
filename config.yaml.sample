@@ -34,9 +34,13 @@ settings:
   ollama_url: "http://localhost:11434"
 
   # Custom prompt template for the LLM
-  # Use {events_data} as placeholder for calendar events
-  # Use {today} as placeholder for today's date
-  # Use {person_name} as placeholder for the person's name
+  # Available placeholders:
+  #   {events_data}  - calendar events data
+  #   {person_name}  - the person's name
+  #   {today}        - target date in ISO format (e.g. "2026-02-14"), backward-compatible alias
+  #   {target_date}  - same as {today}, target date in ISO format
+  #   {full_date}    - full human-readable date (e.g. "Saturday, February 14, 2026")
+  #   {date_label}   - "today", "tomorrow", or formatted date (e.g. "Thursday, February 20")
   llm_prompt: |
     You are a helpful assistant that summarizes calendar events. Below are today's events ({today}) for {person_name}. Please provide a concise, friendly summary of what their day looks like based on this information.
 
