@@ -386,7 +386,7 @@ def call_llm_command(prompt, command):
 
 
 def main(debug=False, quiet=False, output_format='text', use_html=False, output_file=None,
-         target_date=None, date_label=None, full_date_str=None):
+         target_date=None, date_label=None, full_date_str=None, user=None):
     """Main entry point.
 
     Args:
@@ -443,7 +443,15 @@ def main(debug=False, quiet=False, output_format='text', use_html=False, output_
         log_info("Fetching personal calendars...")
         person_calendars = {}
 
-        for person in config.get('people', []):
+        people = config.get('people', [])
+        if user:
+            people = [p for p in people if p['name'].lower() == user.lower()]
+            if not people:
+                available = [p['name'] for p in config.get('people', [])]
+                log_error(f"User '{user}' not found in config. Available: {', '.join(available)}")
+                raise RuntimeError(f"User '{user}' not found")
+
+        for person in people:
             person_name = person['name']
             log_info(f"Processing calendars for: {person_name}")
 
@@ -689,6 +697,13 @@ Examples:
         help='Write output to FILE. If an error occurs or LLM returns no response, existing file will not be overwritten'
     )
 
+    parser.add_argument(
+        '-u', '--user',
+        type=str,
+        metavar='NAME',
+        help='Generate summary for a single user only (must match a name in config.yaml)'
+    )
+
     date_group = parser.add_mutually_exclusive_group()
     date_group.add_argument(
         '--tomorrow',
@@ -737,4 +752,4 @@ Examples:
 
     main(debug=args.debug, quiet=args.quiet, output_format=output_format, use_html=use_html,
          output_file=args.output, target_date=target_date, date_label=date_label,
-         full_date_str=full_date_str)
+         full_date_str=full_date_str, user=args.user)
