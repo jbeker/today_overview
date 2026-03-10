@@ -14,31 +14,23 @@ import pytz
 
 def get_local_timezone():
     """Get the system's local timezone as a pytz timezone."""
-    # Try to get timezone from environment or system
-    # First check TZ environment variable
+    # Try to get timezone from environment variable
     tz_name = os.environ.get('TZ')
 
     if not tz_name:
-        # Try to detect from system - get the offset and find matching pytz timezone
-        # This is a fallback that works reasonably well
-        now = datetime.now()
-        local_offset = now.astimezone().utcoffset()
+        # Read the /etc/localtime symlink (works on macOS and Linux regardless of DST)
+        try:
+            link_target = os.path.realpath('/etc/localtime')
+            # Extract IANA timezone name from path (e.g. .../zoneinfo/America/New_York)
+            marker = '/zoneinfo/'
+            idx = link_target.find(marker)
+            if idx != -1:
+                tz_name = link_target[idx + len(marker):]
+        except OSError:
+            pass
 
-        # Try common US timezones first based on offset
-        offset_hours = local_offset.total_seconds() / 3600
-
-        timezone_map = {
-            -5: 'America/New_York',    # EST/EDT
-            -6: 'America/Chicago',      # CST/CDT
-            -7: 'America/Denver',       # MST/MDT
-            -8: 'America/Los_Angeles',  # PST/PDT
-        }
-
-        tz_name = timezone_map.get(int(offset_hours))
-
-        if not tz_name:
-            # Fallback to UTC if we can't determine
-            tz_name = 'UTC'
+    if not tz_name:
+        tz_name = 'UTC'
 
     try:
         return pytz.timezone(tz_name)

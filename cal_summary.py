@@ -64,24 +64,23 @@ def markdown_to_html(text):
 
 def get_local_timezone():
     """Get the system's local timezone as a pytz timezone."""
-    # Try to get timezone from environment or system
+    # Try to get timezone from environment variable
     tz_name = os.environ.get('TZ')
 
     if not tz_name:
-        # Get the offset and find matching pytz timezone
-        now = datetime.now()
-        local_offset = now.astimezone().utcoffset()
-        offset_hours = local_offset.total_seconds() / 3600
+        # Read the /etc/localtime symlink (works on macOS and Linux regardless of DST)
+        try:
+            link_target = os.path.realpath('/etc/localtime')
+            # Extract IANA timezone name from path (e.g. .../zoneinfo/America/New_York)
+            marker = '/zoneinfo/'
+            idx = link_target.find(marker)
+            if idx != -1:
+                tz_name = link_target[idx + len(marker):]
+        except OSError:
+            pass
 
-        # Common US timezones based on offset
-        timezone_map = {
-            -5: 'America/New_York',    # EST/EDT
-            -6: 'America/Chicago',      # CST/CDT
-            -7: 'America/Denver',       # MST/MDT
-            -8: 'America/Los_Angeles',  # PST/PDT
-        }
-
-        tz_name = timezone_map.get(int(offset_hours), 'UTC')
+    if not tz_name:
+        tz_name = 'UTC'
 
     try:
         return pytz.timezone(tz_name)
@@ -436,8 +435,16 @@ def main(debug=False, quiet=False, output_format='text', use_html=False, output_
         llm_command = settings.get('llm_command')
         prompt_template = settings.get('llm_prompt')
 
-        # Get timezone
-        local_tz = get_local_timezone()
+        # Get timezone (config override > system detection)
+        config_tz = settings.get('timezone')
+        if config_tz:
+            try:
+                local_tz = pytz.timezone(config_tz)
+            except pytz.exceptions.UnknownTimeZoneError:
+                log_warn(f"Unknown timezone '{config_tz}' in config, falling back to system detection")
+                local_tz = get_local_timezone()
+        else:
+            local_tz = get_local_timezone()
 
         # Process each person's calendars
         log_info("Fetching personal calendars...")
