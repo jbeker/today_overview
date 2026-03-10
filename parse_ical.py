@@ -21,11 +21,18 @@ def get_local_timezone():
         # Read the /etc/localtime symlink (works on macOS and Linux regardless of DST)
         try:
             link_target = os.path.realpath('/etc/localtime')
-            # Extract IANA timezone name from path (e.g. .../zoneinfo/America/New_York)
             marker = '/zoneinfo/'
             idx = link_target.find(marker)
             if idx != -1:
                 tz_name = link_target[idx + len(marker):]
+        except OSError:
+            pass
+
+    if not tz_name:
+        # FreeBSD copies the zoneinfo file instead of symlinking; the name is in /var/db/zoneinfo
+        try:
+            with open('/var/db/zoneinfo', 'r') as f:
+                tz_name = f.read().strip()
         except OSError:
             pass
 
