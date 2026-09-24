@@ -377,8 +377,11 @@ def call_llm_command(prompt, command):
             timeout=600
         )
         if result.returncode != 0:
-            stderr_msg = result.stderr.strip() if result.stderr else "unknown error"
-            raise RuntimeError(f"LLM command failed (exit {result.returncode}): {stderr_msg}")
+            # Some CLIs (claude -p among them) report failures on stdout with an
+            # empty stderr, so include both streams in the error.
+            parts = [s.strip() for s in (result.stderr, result.stdout) if s and s.strip()]
+            detail = " | ".join(parts) if parts else "no output on stdout or stderr"
+            raise RuntimeError(f"LLM command failed (exit {result.returncode}): {detail}")
 
         output = result.stdout
         if not output or not output.strip():
