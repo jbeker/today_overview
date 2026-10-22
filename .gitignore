@@ -47,3 +47,4 @@ daily_summary*.md
 
 # Private configuration
 config.yaml
+config.toml
